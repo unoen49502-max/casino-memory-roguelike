@@ -26,11 +26,14 @@ class Card extends Phaser.GameObjects.Container {
 
     this.rank = rank;
     this.suit = suit;
+    this.isJoker = rank === 'JOKER';
+    this.isStar = rank === 'STAR';
 
     // 状態：'back'（裏）/ 'front'（表）/ 'removed'（消滅・将来用）
     this.faceState = 'back';
     this.isFlipping = false;
     this.baseY = y; // ホバー復帰用の基準Y
+    this.baseScale = 1; // 盤面拡張時の基準スケール（フリップ後の戻り先）
     this.onClick = null; // Scene側が差し込むクリックハンドラ
 
     // 表裏の見た目を生成（描画はこのクラス内に閉じる）
@@ -81,7 +84,27 @@ class Card extends Phaser.GameObjects.Container {
     g.strokePath();
 
     c.add(g);
+
+    // デジャヴの指輪用「見た（めくった）マーク」。既定は非表示。
+    this.seenMark = scene.add
+      .text(w / 2 - 12, -h / 2 + 6, '👁', { fontFamily: 'sans-serif', fontSize: '13px' })
+      .setOrigin(0.5)
+      .setAlpha(0.5)
+      .setVisible(false);
+    c.add(this.seenMark);
+
     return c;
+  }
+
+  // デジャヴ：一度めくったマークの表示切替。
+  setSeenMark(show) {
+    if (this.seenMark) this.seenMark.setVisible(!!show && this.faceState === 'back');
+  }
+
+  // 盤面拡張時の基準スケール設定（フリップ演出もこのスケールへ戻る）。
+  setBaseScale(s) {
+    this.baseScale = s;
+    this.setScale(s);
   }
 
   // 表面：白背景にスート記号と数字。♥♦は赤、♠♣は黒。
@@ -99,6 +122,20 @@ class Card extends Phaser.GameObjects.Container {
     g.lineStyle(2, 0x8a7a6a, 1);
     g.strokeRoundedRect(-w / 2 + 1, -h / 2 + 1, w - 2, h - 2, CARD_CORNER);
     c.add(g);
+
+    // 特殊カード（ジョーカー／スター）の表面
+    if (this.isJoker) {
+      const jk = scene.add.text(0, 0, '🃏', { fontFamily: 'serif', fontSize: '40px' }).setOrigin(0.5);
+      const lbl = scene.add.text(0, h / 2 - 14, 'JOKER', { fontFamily: 'sans-serif', fontSize: '11px', color: '#7a4ba0' }).setOrigin(0.5);
+      c.add([jk, lbl]);
+      return c;
+    }
+    if (this.isStar) {
+      const st = scene.add.text(0, -2, '★', { fontFamily: 'serif', fontSize: '46px', color: '#e0a020' }).setOrigin(0.5);
+      const lbl = scene.add.text(0, h / 2 - 14, '+30', { fontFamily: 'sans-serif', fontSize: '13px', color: '#c08000' }).setOrigin(0.5);
+      c.add([st, lbl]);
+      return c;
+    }
 
     // 左上のランク
     const rankTL = scene.add
@@ -160,7 +197,7 @@ class Card extends Phaser.GameObjects.Container {
 
         this.scene.tweens.add({
           targets: this,
-          scaleX: 1,
+          scaleX: this.baseScale,
           duration: FLIP_HALF_MS,
           ease: 'Linear',
           onComplete: () => {

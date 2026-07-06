@@ -1,0 +1,15 @@
+{
+  "joker": {
+    "rank": "JOKER",
+    "suit": "🃏",
+    "isJoker": true,
+    "desc": "どの数字ともペア成立（ジョーカー同士も可）"
+  },
+  "star": {
+    "rank": "STAR",
+    "suit": "★",
+    "isStar": true,
+    "chips": 30,
+    "desc": "めくるとチップ+30。ペア対象外・めくり回数を消費しない"
+  }
+}

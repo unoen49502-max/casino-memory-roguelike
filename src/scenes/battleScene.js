@@ -65,8 +65,35 @@ class BattleScene extends Phaser.Scene {
     this.enemy = enemies[enemyId];
     this.charms = equippedIds.map((id) => allCharms[id]).filter(Boolean);
 
-    this.logic = new BattleLogic({ enemy: this.enemy, charms: this.charms, playerHp });
-    this.turnMgr = new TurnManager({});
+    // モディファイア（雑魚戦のみ1個。ボスは無し。registryで固定指定可）
+    this.modifier = this._pickModifier();
+
+    // 実効の敵・めくり枚数・ターン制限（モディファイア反映）
+    let effEnemy = this.enemy;
+    this.maxFaceUp += charmFlipBonus(this.charms);
+    let maxTurns = MAX_TURNS;
+    if (this.modifier) {
+      if (this.modifier.type === 'double_flip') {
+        this.maxFaceUp = this.modifier.flips;
+        effEnemy = Object.assign({}, this.enemy, { attack: this.enemy.attack * this.modifier.enemyAttackMult });
+      } else if (this.modifier.type === 'turn_limit') {
+        maxTurns = this.modifier.value;
+      }
+    }
+
+    this.logic = new BattleLogic({
+      enemy: effEnemy,
+      charms: this.charms,
+      playerHp,
+      playerMaxHp: this.run ? this.run.maxHp : PLAYER_MAX_HP,
+    });
+    this.turnMgr = new TurnManager({ maxTurns });
+
+    // 新チャーム用フラグ
+    this.seenEnabled = charmHas(this.charms, 'seen_hint'); // デジャヴの指輪
+    this.seenSet = new Set();
+    this.hasSecondChance = charmHas(this.charms, 'retry_on_fail'); // セカンドチャンス
+    this.retryUsed = false;
 
     this.cards = [];
     this.flippedCards = [];
@@ -84,10 +111,68 @@ class BattleScene extends Phaser.Scene {
     this._createCharmUI();
     this._buildBoard();
 
+    // モディファイアの開始時演出＋告知
+    this._applyStartModifier();
+    this._announceModifier();
+
     // バトル開始リアクション（smile + slide_in）
     this._react('battle_start');
 
     this._beginTurn();
+  }
+
+  // 雑魚戦のみモディファイアを1個選ぶ（ボスは無し）。registryで固定指定可。
+  _pickModifier() {
+    if (this.enemy && this.enemy.type === 'boss') return null;
+    const mods = this.cache.json.get('modifiers') || {};
+    const forced = this.registry.get('forceModifier');
+    if (forced === 'none') return null;
+    if (forced && mods[forced]) return mods[forced];
+    const keys = Object.keys(mods);
+    if (keys.length === 0) return null;
+    return mods[keys[Math.floor(Math.random() * keys.length)]];
+  }
+
+  // モディファイア告知（名前＋効果。リボン色：ポジ=緑/ニュートラル=白/ネガ=赤）。
+  _announceModifier() {
+    if (!this.modifier) return;
+    const colorByKind = { positive: 0x2e7d32, neutral: 0x555555, negative: 0x9a2a2a };
+    const col = colorByKind[this.modifier.kind] != null ? colorByKind[this.modifier.kind] : 0x555555;
+    const cx = this.scale.width / 2;
+    const ribbon = this.add.rectangle(cx, 150, 560, 56, col, 0.92).setDepth(160);
+    const name = this.add
+      .text(cx, 138, `MODIFIER: ${this.modifier.name}`, { fontFamily: 'sans-serif', fontSize: '20px', fontStyle: 'bold', color: '#ffffff' })
+      .setOrigin(0.5).setDepth(161);
+    const desc = this.add
+      .text(cx, 162, this.modifier.desc, { fontFamily: 'sans-serif', fontSize: '14px', color: '#f0f0f0' })
+      .setOrigin(0.5).setDepth(161);
+    this.tweens.add({ targets: [ribbon, name, desc], alpha: 0, delay: 1800, duration: 700, onComplete: () => { ribbon.destroy(); name.destroy(); desc.destroy(); } });
+  }
+
+  // モディファイアの開始時盤面演出（幸運のディーラー／プレビュー）。
+  _applyStartModifier() {
+    if (!this.modifier) return;
+    if (this.modifier.type === 'start_revealed_pairs') {
+      // 2ペア分を表向きで開始（マッチするペアを探して表に）
+      const back = this.cards.filter((c) => c.faceState === 'back' && !c.isStar);
+      const byRank = {};
+      back.forEach((c) => (byRank[c.rank] || (byRank[c.rank] = [])).push(c));
+      let revealed = 0;
+      Object.values(byRank).forEach((g) => {
+        if (revealed < this.modifier.value && g.length >= 2) {
+          g[0].flipToFront();
+          g[1].flipToFront();
+          revealed++;
+        }
+      });
+    } else if (this.modifier.type === 'preview_all') {
+      this.cards.forEach((c) => { if (c.faceState === 'back') c.flipToFront(); });
+      this.inputLockUntilPreview = true;
+      this.time.delayedCall(this.modifier.value, () => {
+        this.cards.forEach((c) => { if (c.faceState === 'front' && this.flippedCards.indexOf(c) === -1) c.flipToBack(); });
+        this.inputLockUntilPreview = false;
+      });
+    }
   }
 
   _createCharacter() {
@@ -108,6 +193,7 @@ class BattleScene extends Phaser.Scene {
     this.logic.on('pair_fail', (e) => this._onPairFail(e));
     this.logic.on('enemy_damaged', (e) => this._updateEnemyHpUI(e));
     this.logic.on('player_damaged', (e) => this._onPlayerDamaged(e));
+    this.logic.on('player_healed', () => { this._updatePlayerHpUI(); this._floatText(120, 110, '+HP', '#8ad0a0'); });
     this.logic.on('board_refill', (e) => this._onBoardRefill(e));
     this.logic.on('victory', (e) => this._onVictory(e));
     this.logic.on('defeat', (e) => this._onDefeat(e));
@@ -256,24 +342,51 @@ class BattleScene extends Phaser.Scene {
   // ================= 盤面 =================
 
   _buildBoard() {
-    const board = generateBoard();
-    const boardW = GRID_COLS * CARD_WIDTH + (GRID_COLS - 1) * CARD_GAP;
-    const boardH = GRID_ROWS * CARD_HEIGHT + (GRID_ROWS - 1) * CARD_GAP;
+    const specials = this.cache.json.get('special_cards') || {};
+    // 整列盤面モディファイアなら数字順、通常はシャッフル
+    let board = this.modifier && this.modifier.type === 'sorted_layout' ? generateSortedBoard() : generateBoard();
+
+    // ジョーカー：ボス戦は確定1枚 ＋ ジョーカーカード（チャーム）分を「置く」
+    let jokerCount = charmJokerCount(this.charms);
+    if (this.enemy && this.enemy.type === 'boss') jokerCount += 1;
+    if (jokerCount > 0 && specials.joker) board = injectJokers(board, specials.joker, jokerCount);
+
+    // スター：雑魚戦に15%で1枚「追加」（registryで固定指定可）
+    const forceStar = this.registry.get('forceStar');
+    const isZako = !this.enemy || this.enemy.type !== 'boss';
+    const starRoll = forceStar === true || (forceStar == null && isZako && Math.random() < 0.15);
+    if (specials.star && isZako && starRoll) board = addStar(board, specials.star);
+
+    this._layoutBoard(board);
+  }
+
+  // N枚を4列グリッドに配置。枚数が多い場合は全体を縮小して収める。
+  _layoutBoard(board) {
+    const N = board.length;
+    const cols = GRID_COLS;
+    const rows = Math.ceil(N / cols);
+    const cellW = CARD_WIDTH + CARD_GAP;
+    const cellH = CARD_HEIGHT + CARD_GAP;
     const areaTop = this.scale.height / 3;
     const areaHeight = (this.scale.height * 2) / 3;
-    const startX = (this.scale.width - boardW) / 2 + CARD_WIDTH / 2;
-    const startY = areaTop + (areaHeight - boardH) / 2 + CARD_HEIGHT / 2;
+    const scale = Math.min(1, (areaHeight - 10) / (rows * cellH), (this.scale.width * 0.7) / (cols * cellW));
+    const sW = cellW * scale;
+    const sH = cellH * scale;
+    const boardW = cols * sW;
+    const boardH = rows * sH;
+    const startX = (this.scale.width - boardW) / 2 + sW / 2;
+    const startY = areaTop + (areaHeight - boardH) / 2 + sH / 2;
 
-    for (let row = 0; row < GRID_ROWS; row++) {
-      for (let col = 0; col < GRID_COLS; col++) {
-        const index = row * GRID_COLS + col;
-        const data = board[index];
-        const x = startX + col * (CARD_WIDTH + CARD_GAP);
-        const y = startY + row * (CARD_HEIGHT + CARD_GAP);
-        const card = new Card(this, x, y, data.rank, data.suit);
-        card.onClick = (c) => this._onCardClicked(c);
-        this.cards.push(card);
-      }
+    for (let i = 0; i < N; i++) {
+      const row = Math.floor(i / cols);
+      const col = i % cols;
+      const x = startX + col * sW;
+      const y = startY + row * sH;
+      const data = board[i];
+      const card = new Card(this, x, y, data.rank, data.suit);
+      if (scale !== 1) card.setBaseScale(scale);
+      card.onClick = (c) => this._onCardClicked(c);
+      this.cards.push(card);
     }
   }
 
@@ -283,8 +396,10 @@ class BattleScene extends Phaser.Scene {
     this._buildBoard();
   }
 
+  // ペア対象（スター以外）が全て消えたか。スターは任意収集なので判定から除外。
   _allRemoved() {
-    return this.cards.length > 0 && this.cards.every((c) => c.faceState === 'removed');
+    const pairable = this.cards.filter((c) => !c.isStar);
+    return pairable.length > 0 && pairable.every((c) => c.faceState === 'removed');
   }
 
   // ================= ターンループ =================
@@ -292,6 +407,7 @@ class BattleScene extends Phaser.Scene {
   _beginTurn() {
     if (this.battleOver) return;
     const turn = this.turnMgr.next();
+    this.retryUsed = false; // セカンドチャンスは1ターン1回
     this._updateTurnUI();
 
     // ボスギミック（お手伝い♡）：3の倍数ターン開始時に自動で1ペア消滅（ダメージ0）
@@ -311,7 +427,7 @@ class BattleScene extends Phaser.Scene {
   // プレイヤーのめくり（flippedCards）には数えない純粋なヒント。
   _revealHint(count, durationMs) {
     const candidates = this.cards.filter(
-      (c) => c.faceState === 'back' && this.flippedCards.indexOf(c) === -1
+      (c) => c.faceState === 'back' && !c.isStar && this.flippedCards.indexOf(c) === -1
     );
     for (let i = candidates.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -354,11 +470,20 @@ class BattleScene extends Phaser.Scene {
   // ================= 入力 =================
 
   _onCardClicked(card) {
-    if (!this.inputEnabled || this.battleOver) return;
+    if (!this.inputEnabled || this.battleOver || this.inputLockUntilPreview) return;
     if (this.isResolving || card.isFlipping) return;
     if (card.faceState !== 'back') return;
+
+    // ★スター：ペア対象外・めくり回数を消費しない。チップ+30の収集。
+    if (card.isStar) {
+      this._collectStar(card);
+      return;
+    }
+
     if (this.flippedCards.length >= this.maxFaceUp) return;
 
+    card.setSeenMark(false);
+    if (this.seenEnabled) this.seenSet.add(card); // デジャヴ：一度めくった記録
     card.flipToFront();
     this.flippedCards.push(card);
 
@@ -385,13 +510,47 @@ class BattleScene extends Phaser.Scene {
       const px = matched.reduce((s, c) => s + c.x, 0) / matched.length;
       const py = matched.reduce((s, c) => s + c.y, 0) / matched.length;
       matched.forEach((c) => c.remove());
-      unmatched.forEach((c) => c.flipToBack());
+      unmatched.forEach((c) => this._flipBackSeen(c));
       this._showDamagePopup(px, py, res.damage, res.hand, res.combo);
     } else {
-      flipped.forEach((c) => c.flipToBack());
+      flipped.forEach((c) => this._flipBackSeen(c));
+      // セカンドチャンス：失敗時1ターン1回だけ追加でめくれる（敵ターンに進めない）
+      if (this.hasSecondChance && !this.retryUsed) {
+        this.retryUsed = true;
+        this.flippedCards = [];
+        this.isResolving = false;
+        this.inputEnabled = true;
+        this._floatText(this.scale.width / 2, this.scale.height / 2, 'SECOND CHANCE!', '#9be27a');
+        return; // ターンを終えず再めくり
+      }
     }
 
     this.time.delayedCall(ENEMY_TURN_DELAY_MS, () => this._endTurn());
+  }
+
+  // 裏に戻す。デジャヴ有効なら「見たマーク」を付ける。
+  _flipBackSeen(card) {
+    card.flipToBack(() => {
+      if (this.seenEnabled && this.seenSet.has(card)) card.setSeenMark(true);
+    });
+  }
+
+  // ★スター収集：チップ+30、めくり回数を消費しない。
+  _collectStar(card) {
+    const specials = this.cache.json.get('special_cards') || {};
+    const chips = (specials.star && specials.star.chips) || 30;
+    card.flipToFront();
+    if (this.run) this.run.addChips(chips);
+    this._starChips = (this._starChips || 0) + chips;
+    this._floatText(card.x, card.y - 20, `★ +${chips}`, '#ffd54a');
+    this.time.delayedCall(400, () => card.remove());
+  }
+
+  _floatText(x, y, text, color) {
+    const t = this.add
+      .text(x, y, text, { fontFamily: 'sans-serif', fontSize: '24px', fontStyle: 'bold', color, stroke: '#3a1a2c', strokeThickness: 4 })
+      .setOrigin(0.5).setDepth(140);
+    this.tweens.add({ targets: t, y: y - 40, alpha: 0, duration: 900, onComplete: () => t.destroy() });
   }
 
   // ================= ロジック結果イベント（立ち絵リアクションのみ） =================

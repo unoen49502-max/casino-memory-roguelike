@@ -22,14 +22,17 @@ class BattleLogic {
     this.enemy = options.enemy || null;
     this.charms = options.charms || []; // 装備中チャーム定義
 
-    this.playerMaxHp = options.playerHp != null ? options.playerHp : PLAYER_MAX_HP;
-    this.playerHp = this.playerMaxHp;
+    // 最大HPと現在HPは別（ラン中はHP持越で current < max になる）。
+    this.playerMaxHp = options.playerMaxHp != null ? options.playerMaxHp : PLAYER_MAX_HP;
+    this.playerHp = options.playerHp != null ? options.playerHp : this.playerMaxHp;
 
     this.enemyMaxHp = this.enemy ? this.enemy.hp : 0;
     this.enemyHp = this.enemyMaxHp;
 
     this.comboCount = 0; // 連続成功ターン数
     this.comboBonus = 0; // フルクリア等で加算される倍率ボーナス
+    this.successCount = 0; // 1戦内のペア成功数（ヒートアップ用）
+    this.godHandArmed = false; // ゴッドハンド：次ターン×3の待機フラグ
 
     this.finished = false;
     this.outcome = null; // 'victory' | 'defeat'
@@ -65,14 +68,16 @@ class BattleLogic {
       return { success: false, matchedIndices: [], unmatchedIndices: cards.map((_, i) => i), damage: 0 };
     }
 
-    // 同ランクで2枚ずつペア化。余りは不成立。
+    // ジョーカーはワイルド。通常札を同ランク2枚ずつ、余りをジョーカーで補完する。
+    const jokerIdx = [];
     const byRank = {};
     cards.forEach((c, i) => {
-      (byRank[c.rank] || (byRank[c.rank] = [])).push(i);
+      if (c.isJoker || c.rank === 'JOKER') jokerIdx.push(i);
+      else (byRank[c.rank] || (byRank[c.rank] = [])).push(i);
     });
     const pairs = [];
     const matchedIndices = [];
-    const unmatchedIndices = [];
+    const leftovers = []; // ペアにならなかった通常札
     Object.keys(byRank).forEach((r) => {
       const idxs = byRank[r];
       let k = 0;
@@ -80,28 +85,62 @@ class BattleLogic {
         pairs.push(makePair(cards[idxs[k]], cards[idxs[k + 1]]));
         matchedIndices.push(idxs[k], idxs[k + 1]);
       }
-      for (; k < idxs.length; k++) unmatchedIndices.push(idxs[k]);
+      for (; k < idxs.length; k++) leftovers.push(idxs[k]);
     });
+    // ジョーカーで余り札を補完
+    let j = 0;
+    while (j < jokerIdx.length && leftovers.length > 0) {
+      const b = leftovers.shift();
+      pairs.push(makePair(cards[jokerIdx[j]], cards[b]));
+      matchedIndices.push(jokerIdx[j], b);
+      j++;
+    }
+    // 残ジョーカー同士でペア
+    for (; j + 1 < jokerIdx.length; j += 2) {
+      pairs.push(makePair(cards[jokerIdx[j]], cards[jokerIdx[j + 1]]));
+      matchedIndices.push(jokerIdx[j], jokerIdx[j + 1]);
+    }
+    for (; j < jokerIdx.length; j++) leftovers.push(jokerIdx[j]);
+    const unmatchedIndices = leftovers;
 
     if (pairs.length > 0) {
+      this.successCount += 1;
       const hand = evaluateHand(pairs);
       const comboMult = this.currentComboMultiplier();
-      const corr = charmDamageCorrections(this.charms, { pairs, hand });
+
+      // チャーム補正（乗算/加算）。ヒートアップは成功数を参照。
+      const corr = charmDamageCorrections(this.charms, { pairs, hand, successCount: this.successCount });
+      // ゴッドハンド：前ターンがダブルペア以上なら今ターン×3
+      const godMult = this.godHandArmed && charmHas(this.charms, 'next_turn_triple') ? 3 : 1;
+      this.godHandArmed = false;
+
       const dmg = calcDamageWithCharms(pairs, {
         handMult: hand.multiplier,
         comboMult,
-        charmMult: corr.mult,
+        charmMult: corr.mult * godMult,
         charmFlat: corr.flat,
       });
       const damage = dmg.damage;
       this.lastBreakdown = dmg.breakdown;
       console.log(
         `[DMG] pairs=${pairs.length} pairValue=${dmg.breakdown.pairValue} hand=${hand.name}(x${hand.multiplier}) ` +
-          `combo=x${comboMult} charmMult=x${corr.mult} charmFlat=+${corr.flat} => ${damage}`
+          `combo=x${comboMult} charmMult=x${corr.mult}${godMult > 1 ? ` godhand=x${godMult}` : ''} charmFlat=+${corr.flat} => ${damage}`
       );
+
+      // ゴッドハンド発動条件：このターンがダブルペア以上（2ペア以上）なら次ターン用に武装
+      if (pairs.length >= 2 && charmHas(this.charms, 'next_turn_triple')) {
+        this.godHandArmed = true;
+      }
 
       this.comboCount = nextComboCount(this.comboCount, true);
       this.enemyHp = Math.max(0, this.enemyHp - damage);
+
+      // ヒーリングチップ：ペア成功時HP回復
+      const heal = charmHealOnSuccess(this.charms);
+      if (heal > 0 && this.playerHp < this.playerMaxHp) {
+        this.playerHp = Math.min(this.playerMaxHp, this.playerHp + heal);
+        this._emit('player_healed', { playerHp: this.playerHp, playerMaxHp: this.playerMaxHp, amount: heal });
+      }
 
       const combo = { count: this.comboCount, multiplier: comboMult };
       this._emit('pair_success', { pairs, hand, combo, damage, enemyHp: this.enemyHp });

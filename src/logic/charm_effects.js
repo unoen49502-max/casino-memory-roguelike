@@ -27,6 +27,7 @@ function charmDamageCorrections(charms, ctx) {
   let multAdd = 0; // 乗算補正の加算分（合成前）
   let flatAdd = 0; // 加算補正
   const pairs = (ctx && ctx.pairs) || [];
+  const successCount = (ctx && ctx.successCount) || 0;
 
   (charms || []).forEach((c) => {
     if (!c) return;
@@ -37,10 +38,20 @@ function charmDamageCorrections(charms, ctx) {
           multAdd += c.value;
         }
         break;
+      case 'rank_pair_damage_mult':
+        // 指定ランクのペア成功時に乗算+value（ラッキー7など）
+        if (pairs.some((p) => p.rank === c.rank)) {
+          multAdd += c.value;
+        }
+        break;
+      case 'success_count_mult':
+        // 1戦内のペア成功数に比例して乗算+（value×成功数）（ヒートアップ）
+        multAdd += c.value * successCount;
+        break;
       case 'flat_damage_add':
         flatAdd += c.value;
         break;
-      // combo_step_boost はコンボ倍率側（charmComboStepBonus）で処理するため無視
+      // combo_step_boost はコンボ倍率側で、heal/flip/joker等はScene・別処理で扱う
       default:
         break;
     }
@@ -48,6 +59,26 @@ function charmDamageCorrections(charms, ctx) {
 
   // 乗算はまとめて (1 + Σ)、加算はまとめて Σ
   return { mult: 1 + multAdd, flat: flatAdd };
+}
+
+// 指定タイプのチャームを装備しているか。
+function charmHas(charms, type) {
+  return (charms || []).some((c) => c && c.type === type);
+}
+
+// めくり枚数ボーナス合計（flip_bonus：追加めくり権）。
+function charmFlipBonus(charms) {
+  return (charms || []).reduce((s, c) => s + (c && c.type === 'flip_bonus' ? c.value : 0), 0);
+}
+
+// ペア成功時のHP回復量合計（heal_on_success：ヒーリングチップ）。
+function charmHealOnSuccess(charms) {
+  return (charms || []).reduce((s, c) => s + (c && c.type === 'heal_on_success' ? c.value : 0), 0);
+}
+
+// 盤面追加ジョーカー枚数（add_joker：ジョーカーカード）。
+function charmJokerCount(charms) {
+  return (charms || []).reduce((s, c) => s + (c && c.type === 'add_joker' ? (c.value || 1) : 0), 0);
 }
 
 /**

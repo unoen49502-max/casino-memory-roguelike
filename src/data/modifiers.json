@@ -1,0 +1,27 @@
+{
+  "lucky_dealer": {
+    "id": "lucky_dealer", "name": "幸運のディーラー", "kind": "positive",
+    "type": "start_revealed_pairs", "value": 2,
+    "desc": "開始時、2ペア分が表向きで始まる"
+  },
+  "preview": {
+    "id": "preview", "name": "プレビュー", "kind": "neutral",
+    "type": "preview_all", "value": 3000,
+    "desc": "開始時、3秒間だけ全盤面を公開する"
+  },
+  "sorted_board": {
+    "id": "sorted_board", "name": "整列盤面", "kind": "neutral",
+    "type": "sorted_layout",
+    "desc": "盤面が数字順に整列して配置される"
+  },
+  "double_flip": {
+    "id": "double_flip", "name": "ダブルめくり", "kind": "neutral",
+    "type": "double_flip", "flips": 4, "enemyAttackMult": 2,
+    "desc": "めくり4枚。ただし敵の攻撃力2倍"
+  },
+  "turn_compress": {
+    "id": "turn_compress", "name": "ターン圧縮", "kind": "negative",
+    "type": "turn_limit", "value": 15,
+    "desc": "ターン制限が15になる"
+  }
+}

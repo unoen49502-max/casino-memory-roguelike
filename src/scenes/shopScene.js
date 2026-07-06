@@ -2,8 +2,8 @@
 // チャーム3種提示（未実装はSOLD OUT）／HP回復＋15＝30チップ。
 // 購入は run_manager の装備に追加（3スロット。満杯時は入替UI）。
 
-// 提示チャーム（プロト固定：実装2＋未実装1でSOLD OUT枠も見せる）。
-const SHOP_OFFER_IDS = ['spade_brooch', 'clairvoyance_dice', 'heart_brooch'];
+// 提示チャーム（プロト固定。存在しないid・未実装はSOLD OUT表示で枠だけ見せる）。
+const SHOP_OFFER_IDS = ['lucky_seven', 'healing_chip', 'god_hand'];
 // レアリティ別価格。
 const CHARM_PRICE = { common: 40, uncommon: 70, rare: 110, epic: 150, legendary: 200 };
 const HEAL_PRICE = 30;
@@ -78,6 +78,12 @@ class ShopScene extends Phaser.Scene {
 
   _createCharmCard(x, y, id) {
     const c = this.allCharms[id];
+    if (!c) {
+      // 定義が無いidはSOLD OUT枠として表示
+      this.add.rectangle(x, y, 280, 220, 0x2a1420).setStrokeStyle(2, 0x4a2438);
+      this.add.text(x, y, 'SOLD OUT', { fontFamily: 'sans-serif', fontSize: '18px', color: '#8a5a6c' }).setOrigin(0.5);
+      return;
+    }
     const price = CHARM_PRICE[c.rarity] != null ? CHARM_PRICE[c.rarity] : 100;
     const buyable = !!c.implemented;
 

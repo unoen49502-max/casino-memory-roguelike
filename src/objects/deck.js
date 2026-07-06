@@ -45,3 +45,30 @@ function generateBoard() {
   // 配置をシャッフル
   return shuffle(cards);
 }
+
+// 数字順に整列した盤面（整列盤面モディファイア用。シャッフルしない）。
+function generateSortedBoard() {
+  const chosenRanks = shuffle(RANKS).slice(0, 8);
+  chosenRanks.sort((a, b) => RANKS.indexOf(a) - RANKS.indexOf(b));
+  const cards = [];
+  chosenRanks.forEach((rank) => {
+    cards.push({ rank, suit: randomSuit() });
+    cards.push({ rank, suit: randomSuit() });
+  });
+  return cards; // 整列（未シャッフル）
+}
+
+// ジョーカーをcount枚「置く」：ランダムな通常札スロットを置換（枚数=偶数維持のため）。
+function injectJokers(board, jokerDef, count) {
+  const b = board.slice();
+  for (let n = 0; n < count && b.length > 0; n++) {
+    const i = Math.floor(Math.random() * b.length);
+    b[i] = Object.assign({}, jokerDef);
+  }
+  return b;
+}
+
+// スターを1枚「追加」：末尾に足す（ペア対象外の追加札）。
+function addStar(board, starDef) {
+  return board.concat([Object.assign({}, starDef)]);
+}
