@@ -8,8 +8,10 @@
 // N回目の連続成功時に適用される倍率 = COMBO_BASE + COMBO_STEP * comboCount。
 
 // 現在のcomboCountから適用倍率を求める。
-function comboMultiplier(comboCount) {
-  return COMBO_BASE + COMBO_STEP * comboCount;
+// step未指定なら既定のCOMBO_STEP。チャーム（ストリークダイス等）で増分を上書きできる。
+function comboMultiplier(comboCount, step) {
+  const s = step != null ? step : COMBO_STEP;
+  return COMBO_BASE + s * comboCount;
 }
 
 // ターン結果に応じて次のcomboCountを返す。成功で+1、失敗で0にリセット。

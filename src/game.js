@@ -9,7 +9,7 @@ const config = {
   width: GAME_WIDTH,
   height: GAME_HEIGHT,
   backgroundColor: '#1a0a14',
-  scene: [BootScene, TitleScene, BattleScene],
+  scene: [BootScene, TitleScene, CharmSelectScene, BattleScene],
 };
 
 // eslint-disable-next-line no-unused-vars

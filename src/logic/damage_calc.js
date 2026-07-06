@@ -25,3 +25,26 @@ function calcDamage(pairs, multipliers) {
   const factor = Object.values(multipliers).reduce((m, v) => m * v, 1);
   return Math.ceil(base * factor);
 }
+
+/**
+ * チャーム補正込みのダメージ計算。
+ * ダメージ = Σペア値 × 役倍率 × コンボ倍率 × チャーム乗算補正 + チャーム加算補正（切り上げ）
+ * @returns {{damage:number, breakdown:object}} 数値と内訳（バランス調整ログ用）
+ */
+function calcDamageWithCharms(pairs, { handMult, comboMult, charmMult, charmFlat }) {
+  const base = totalPairValue(pairs);
+  const cMult = charmMult != null ? charmMult : 1;
+  const cFlat = charmFlat != null ? charmFlat : 0;
+  const raw = base * handMult * comboMult * cMult + cFlat;
+  return {
+    damage: Math.ceil(raw),
+    breakdown: {
+      pairValue: base,
+      handMult,
+      comboMult,
+      charmMult: cMult,
+      charmFlat: cFlat,
+      raw,
+    },
+  };
+}

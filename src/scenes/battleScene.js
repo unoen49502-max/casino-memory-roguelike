@@ -5,6 +5,8 @@
 
 // --- デバッグ：どの敵と戦うか（起動時定数。registryで上書き可） ---
 const DEBUG_ENEMY_ID = 'mob_a';
+// --- デバッグ：初期装備チャーム（CharmSelectScene未経由時のフォールバック） ---
+const DEBUG_EQUIPPED_CHARMS = ['spade_brooch', 'clairvoyance_dice', 'streak_dice'];
 
 // 盤面レイアウト定数。
 const GRID_COLS = 4;
@@ -48,7 +50,12 @@ class BattleScene extends Phaser.Scene {
     const enemies = this.cache.json.get('enemies') || {};
     this.enemy = enemies[enemyId];
 
-    this.logic = new BattleLogic({ enemy: this.enemy });
+    // 装備チャーム（registry優先、無ければデバッグ既定）
+    const allCharms = this.cache.json.get('charms') || {};
+    const equippedIds = this.registry.get('equippedCharms') || DEBUG_EQUIPPED_CHARMS;
+    this.charms = equippedIds.map((id) => allCharms[id]).filter(Boolean);
+
+    this.logic = new BattleLogic({ enemy: this.enemy, charms: this.charms });
     this.turnMgr = new TurnManager({});
 
     this.cards = [];
@@ -65,6 +72,7 @@ class BattleScene extends Phaser.Scene {
 
     this._drawReservedArea();
     this._createHpUI();
+    this._createCharmUI();
     this._buildBoard();
 
     // バトル開始リアクション（smile + slide_in）
@@ -184,6 +192,58 @@ class BattleScene extends Phaser.Scene {
     this.turnText.setText(`TURN ${this.turnMgr.turn} / ${this.turnMgr.maxTurns}`);
   }
 
+  // 装備チャームの仮UI：画面左端に3スロット。ホバーで効果説明を表示。
+  _createCharmUI() {
+    const slotSize = 52;
+    const gap = 10;
+    const x = 24;
+    const y0 = 150;
+
+    // ツールチップ（共有）
+    this.charmTip = this.add
+      .text(0, 0, '', {
+        fontFamily: 'sans-serif',
+        fontSize: '14px',
+        color: '#f5e6d8',
+        backgroundColor: '#2a1420',
+        padding: { x: 8, y: 6 },
+        wordWrap: { width: 240 },
+      })
+      .setDepth(300)
+      .setVisible(false);
+
+    for (let i = 0; i < 3; i++) {
+      const cy = y0 + i * (slotSize + gap);
+      const charm = this.charms[i];
+      const box = this.add
+        .rectangle(x, cy, slotSize, slotSize, charm ? 0x4a2438 : 0x241019)
+        .setOrigin(0, 0)
+        .setStrokeStyle(2, charm && charm.implemented ? 0xffb0d0 : 0x6e3b57)
+        .setDepth(60);
+
+      const label = this.add
+        .text(x + slotSize / 2, cy + slotSize / 2, charm ? charm.name.slice(0, 1) : '−', {
+          fontFamily: 'sans-serif',
+          fontSize: '22px',
+          color: charm ? '#ffd0e6' : '#5a3a4c',
+        })
+        .setOrigin(0.5)
+        .setDepth(61);
+
+      if (charm) {
+        box.setInteractive({ useHandCursor: true });
+        box.on('pointerover', () => {
+          const status = charm.implemented ? '' : '（未実装）';
+          this.charmTip
+            .setText(`${charm.name}${status}\n[${charm.category}] ${charm.rarity}\n${charm.desc}`)
+            .setPosition(x + slotSize + 8, cy)
+            .setVisible(true);
+        });
+        box.on('pointerout', () => this.charmTip.setVisible(false));
+      }
+    }
+  }
+
   // ================= 盤面 =================
 
   _buildBoard() {
@@ -230,7 +290,32 @@ class BattleScene extends Phaser.Scene {
       this._doGimmick();
     }
 
+    // チャームのターン開始時効果（千里眼のダイス等：ランダム1枚を一定時間だけ表に）
+    charmTurnStartActions(this.charms).forEach((a) => {
+      if (a.action === 'reveal_random') this._revealHint(a.count, a.durationMs);
+    });
+
     this.inputEnabled = true;
+  }
+
+  // ヒント表示：裏向きカードから count 枚を durationMs だけ表にして戻す。
+  // プレイヤーのめくり（flippedCards）には数えない純粋なヒント。
+  _revealHint(count, durationMs) {
+    const candidates = this.cards.filter(
+      (c) => c.faceState === 'back' && this.flippedCards.indexOf(c) === -1
+    );
+    for (let i = candidates.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
+    candidates.slice(0, count).forEach((card) => {
+      card.flipToFront();
+      this.time.delayedCall(durationMs, () => {
+        if (card.faceState === 'front' && this.flippedCards.indexOf(card) === -1) {
+          card.flipToBack();
+        }
+      });
+    });
   }
 
   _endTurn() {

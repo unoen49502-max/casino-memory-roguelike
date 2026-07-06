@@ -20,6 +20,7 @@
 class BattleLogic {
   constructor(options = {}) {
     this.enemy = options.enemy || null;
+    this.charms = options.charms || []; // 装備中チャーム定義
 
     this.playerMaxHp = options.playerHp != null ? options.playerHp : PLAYER_MAX_HP;
     this.playerHp = this.playerMaxHp;
@@ -46,9 +47,10 @@ class BattleLogic {
     (this._handlers[eventName] || []).forEach((h) => h(payload));
   }
 
-  // 現在の実効コンボ倍率（基本倍率＋ボーナス）。
+  // 現在の実効コンボ倍率（基本倍率＋チャーム増分＋ボーナス）。
   currentComboMultiplier() {
-    return comboMultiplier(this.comboCount) + this.comboBonus;
+    const step = COMBO_STEP + charmComboStepBonus(this.charms);
+    return comboMultiplier(this.comboCount, step) + this.comboBonus;
   }
 
   /**
@@ -62,7 +64,22 @@ class BattleLogic {
       const pairs = [makePair(cardA, cardB)];
       const hand = evaluateHand(pairs);
       const comboMult = this.currentComboMultiplier();
-      const damage = calcDamage(pairs, { hand: hand.multiplier, combo: comboMult });
+
+      // チャーム補正（乗算/加算）を集計してダメージ確定
+      const corr = charmDamageCorrections(this.charms, { pairs, hand });
+      const dmg = calcDamageWithCharms(pairs, {
+        handMult: hand.multiplier,
+        comboMult,
+        charmMult: corr.mult,
+        charmFlat: corr.flat,
+      });
+      const damage = dmg.damage;
+      this.lastBreakdown = dmg.breakdown;
+      // バランス調整用ログ（内訳：ペア値/役/コンボ/チャーム）
+      console.log(
+        `[DMG] pairValue=${dmg.breakdown.pairValue} hand=${hand.name}(x${hand.multiplier}) ` +
+          `combo=x${comboMult} charmMult=x${corr.mult} charmFlat=+${corr.flat} => ${damage}`
+      );
 
       this.comboCount = nextComboCount(this.comboCount, true);
       this.enemyHp = Math.max(0, this.enemyHp - damage);

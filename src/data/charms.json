@@ -1,0 +1,119 @@
+{
+  "spade_brooch": {
+    "id": "spade_brooch",
+    "name": "♠のブローチ",
+    "rarity": "rare",
+    "category": "火力",
+    "type": "suit_pair_damage_mult",
+    "suit": "♠",
+    "value": 0.5,
+    "implemented": true,
+    "desc": "♠ペア成功時、そのダメージ+50%"
+  },
+  "clairvoyance_dice": {
+    "id": "clairvoyance_dice",
+    "name": "千里眼のダイス",
+    "rarity": "rare",
+    "category": "記憶補助",
+    "type": "reveal_random",
+    "count": 1,
+    "value": 2000,
+    "implemented": true,
+    "desc": "ターン開始時、ランダムな1枚を2秒間だけ表にする"
+  },
+  "streak_dice": {
+    "id": "streak_dice",
+    "name": "ストリークダイス",
+    "rarity": "epic",
+    "category": "コンボ",
+    "type": "combo_step_boost",
+    "value": 0.25,
+    "implemented": true,
+    "desc": "連続成功のコンボ倍率増分を +0.25 → +0.5 にする"
+  },
+
+  "heart_brooch": {
+    "id": "heart_brooch",
+    "name": "♥のブローチ",
+    "rarity": "rare",
+    "category": "火力",
+    "type": "suit_pair_damage_mult",
+    "suit": "♥",
+    "value": 0.5,
+    "implemented": false,
+    "desc": "♥ペア成功時、そのダメージ+50%（TASK_007で実装）"
+  },
+  "diamond_brooch": {
+    "id": "diamond_brooch",
+    "name": "♦のブローチ",
+    "rarity": "rare",
+    "category": "火力",
+    "type": "suit_pair_damage_mult",
+    "suit": "♦",
+    "value": 0.5,
+    "implemented": false,
+    "desc": "♦ペア成功時、そのダメージ+50%（TASK_007で実装）"
+  },
+  "club_brooch": {
+    "id": "club_brooch",
+    "name": "♣のブローチ",
+    "rarity": "rare",
+    "category": "火力",
+    "type": "suit_pair_damage_mult",
+    "suit": "♣",
+    "value": 0.5,
+    "implemented": false,
+    "desc": "♣ペア成功時、そのダメージ+50%（TASK_007で実装）"
+  },
+  "loaded_dice": {
+    "id": "loaded_dice",
+    "name": "イカサマダイス",
+    "rarity": "common",
+    "category": "火力",
+    "type": "flat_damage_add",
+    "value": 5,
+    "implemented": false,
+    "desc": "ペア成功時、ダメージに+5（TASK_007で実装）"
+  },
+  "memory_bell": {
+    "id": "memory_bell",
+    "name": "記憶の鈴",
+    "rarity": "common",
+    "category": "記憶補助",
+    "type": "reveal_random",
+    "count": 2,
+    "value": 1500,
+    "implemented": false,
+    "desc": "ターン開始時、ランダムな2枚を1.5秒表にする（TASK_007で実装）"
+  },
+  "gamblers_coin": {
+    "id": "gamblers_coin",
+    "name": "博徒のコイン",
+    "rarity": "epic",
+    "category": "コンボ",
+    "type": "combo_step_boost",
+    "value": 0.15,
+    "implemented": false,
+    "desc": "コンボ倍率増分を少し上げる（TASK_007で実装）"
+  },
+  "lucky_clover": {
+    "id": "lucky_clover",
+    "name": "幸運のクローバー",
+    "rarity": "legendary",
+    "category": "汎用",
+    "type": "on_success_heal",
+    "value": 2,
+    "implemented": false,
+    "desc": "ペア成功時、プレイヤーHPを2回復（TASK_007で実装）"
+  },
+  "iron_will": {
+    "id": "iron_will",
+    "name": "鉄の意志",
+    "rarity": "rare",
+    "category": "防御",
+    "type": "enemy_damage_reduce",
+    "value": 2,
+    "implemented": false,
+    "desc": "敵ターンの被ダメージを2軽減（TASK_007で実装）"
+  }
+}
