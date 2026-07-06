@@ -1,0 +1,17 @@
+{
+  "name": "casino-roguelike",
+  "version": "0.0.1",
+  "description": "神経衰弱×ローグライク プロトタイプ",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "electron": "31.7.7"
+  },
+  "dependencies": {
+    "phaser": "3.80.1"
+  }
+}
