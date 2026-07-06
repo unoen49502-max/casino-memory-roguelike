@@ -1,15 +1,28 @@
 // battleScene：戦闘シーン。
-// TASK_001：4×4盤面の描画とカードめくり（Step1の仮ルール）。
-// ペア判定・役・ダメージ・敵表示はまだ実装しない（Step2以降）。
+// TASK_002：ペア判定・役・ダメージ計算を組込。ペアなら消滅＋ダメージ表示、
+// 不一致なら裏へ戻す。全消滅で BOARD CLEAR（勝敗はTASK_003）。
+//
+// 設計：ゲームロジックは BattleLogic（src/logic/）に委譲し、battleScene は
+// 結果イベント（pair_success / pair_fail / board_clear）を受けて描画するだけ。
 
 // 盤面レイアウト定数（カードサイズ差し替え・盤面拡張を見据えて定数化）。
 const GRID_COLS = 4;
 const GRID_ROWS = 4;
 const CARD_GAP = 16;
-// 表にできる最大枚数（Step1の仮ルール）。
+// 表にできる最大枚数。
 const MAX_FACE_UP = 2;
-// 2枚表になってから自動で裏に戻すまでの表示時間(ms)。
+// 2枚揃ってから判定するまでの表示時間(ms)。
 const PEEK_HOLD_MS = 1000;
+
+// 役の表示名（ポップアップ用）。
+const HAND_LABELS = {
+  PAIR: 'PAIR',
+  SUITED_PAIR: 'SUITED PAIR',
+  DOUBLE_PAIR: 'DOUBLE PAIR',
+  TRIPLE_PAIR: 'TRIPLE PAIR',
+  STRAIGHT_PAIR: 'STRAIGHT PAIR',
+  FLUSH_PAIR: 'FLUSH PAIR',
+};
 
 class BattleScene extends Phaser.Scene {
   constructor() {
@@ -19,7 +32,15 @@ class BattleScene extends Phaser.Scene {
   create() {
     this.cards = [];
     this.flippedCards = []; // 現在表向きのカード（最大MAX_FACE_UP枚）
-    this.isResolving = false; // 2枚表→裏戻し待機中フラグ
+    this.currentPair = null; // 判定対象の2枚（Card参照）
+    this.isResolving = false; // 判定待機中フラグ
+    this.clearedShown = false;
+
+    // ロジック本体と結果イベントの購読（Scene側は表示するだけ）
+    this.logic = new BattleLogic();
+    this.logic.on('pair_success', (e) => this._onPairSuccess(e));
+    this.logic.on('pair_fail', (e) => this._onPairFail(e));
+    this.logic.on('board_clear', () => this._onBoardClear());
 
     this._drawReservedArea();
     this._buildBoard();
@@ -50,7 +71,6 @@ class BattleScene extends Phaser.Scene {
     const boardW = GRID_COLS * CARD_WIDTH + (GRID_COLS - 1) * CARD_GAP;
     const boardH = GRID_ROWS * CARD_HEIGHT + (GRID_ROWS - 1) * CARD_GAP;
 
-    // 下側2/3のエリア内で中央寄せ
     const areaTop = this.scale.height / 3;
     const areaHeight = (this.scale.height * 2) / 3;
     const startX = (this.scale.width - boardW) / 2 + CARD_WIDTH / 2;
@@ -70,24 +90,125 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
-  // Step1の仮ルール：1度に2枚まで表にでき、2枚揃ったら1秒後に両方裏へ戻す。
+  // カードクリック：2枚表になったら PEEK_HOLD_MS 後にロジックへ判定を委譲。
   _onCardClicked(card) {
-    if (this.isResolving) return; // 裏戻し待機中は受け付けない
+    if (this.isResolving) return;
     if (card.isFlipping) return;
-    if (card.faceState === 'front') return; // 既に表
-    if (this.flippedCards.length >= MAX_FACE_UP) return; // 既に上限
+    if (card.faceState !== 'back') return; // 表・消滅は無視
+    if (this.flippedCards.length >= MAX_FACE_UP) return;
 
     card.flipToFront();
     this.flippedCards.push(card);
 
     if (this.flippedCards.length === MAX_FACE_UP) {
-      // 3枚目以降を弾くため待機フラグを立て、1秒後に両方裏へ戻す
       this.isResolving = true;
+      this.currentPair = this.flippedCards.slice();
       this.time.delayedCall(PEEK_HOLD_MS, () => {
-        this.flippedCards.forEach((c) => c.flipToBack());
-        this.flippedCards = [];
-        this.isResolving = false;
+        const [c1, c2] = this.currentPair;
+        // ロジックへ委譲。結果は pair_success / pair_fail イベントで返る。
+        this.logic.resolve(
+          { rank: c1.rank, suit: c1.suit },
+          { rank: c2.rank, suit: c2.suit }
+        );
       });
     }
+  }
+
+  // --- ロジック結果イベントの受け口（描画のみ） --------------------------
+
+  _onPairSuccess(e) {
+    const [c1, c2] = this.currentPair;
+    const px = (c1.x + c2.x) / 2;
+    const py = (c1.y + c2.y) / 2;
+
+    c1.remove();
+    c2.remove(() => {
+      // 盤面全消去チェック（2枚目の消滅完了後）
+      if (this._allRemoved() && !this.clearedShown) {
+        this.logic.notifyBoardClear();
+      }
+    });
+
+    this._showDamagePopup(px, py, e.damage, e.hand, e.combo);
+
+    this._endTurn();
+  }
+
+  _onPairFail(e) {
+    const [c1, c2] = this.currentPair;
+    c1.flipToBack();
+    c2.flipToBack();
+    this._endTurn();
+  }
+
+  _endTurn() {
+    this.flippedCards = [];
+    this.currentPair = null;
+    this.isResolving = false;
+  }
+
+  _allRemoved() {
+    return this.cards.every((c) => c.faceState === 'removed');
+  }
+
+  // ダメージ数値＋役＋コンボのポップアップ（仮演出）。上へ流れて消える。
+  _showDamagePopup(x, y, damage, hand, combo) {
+    const handLabel = HAND_LABELS[hand.name] || hand.name;
+    const comboLabel = combo.count >= 2 ? `  COMBO x${combo.multiplier}` : '';
+
+    const dmgText = this.add
+      .text(x, y, `${damage}`, {
+        fontFamily: 'sans-serif',
+        fontSize: '44px',
+        fontStyle: 'bold',
+        color: '#ffe27a',
+        stroke: '#5a2a00',
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5)
+      .setDepth(100);
+
+    const infoText = this.add
+      .text(x, y + 30, `${handLabel}${comboLabel}`, {
+        fontFamily: 'sans-serif',
+        fontSize: '16px',
+        color: '#f5e6d8',
+        stroke: '#3a1a2c',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(100);
+
+    this.tweens.add({
+      targets: [dmgText, infoText],
+      y: '-=48',
+      alpha: 0,
+      duration: 900,
+      ease: 'Cubic.easeOut',
+      onComplete: () => {
+        dmgText.destroy();
+        infoText.destroy();
+      },
+    });
+  }
+
+  _onBoardClear() {
+    if (this.clearedShown) return;
+    this.clearedShown = true;
+
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+
+    this.add
+      .text(cx, cy, 'BOARD CLEAR', {
+        fontFamily: 'sans-serif',
+        fontSize: '56px',
+        fontStyle: 'bold',
+        color: '#ffe27a',
+        stroke: '#5a2a00',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setDepth(200);
   }
 }

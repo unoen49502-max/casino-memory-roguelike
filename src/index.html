@@ -24,7 +24,16 @@
   <!-- Phaser本体 -->
   <script src="../node_modules/phaser/dist/phaser.min.js"></script>
 
-  <!-- ゲームロジック・部品（Sceneより前に読み込む） -->
+  <!-- ゲームロジック（Phaser非依存の純粋関数・部品より前に読み込む） -->
+  <script src="./logic/balance_config.js"></script>
+  <script src="./logic/card_values.js"></script>
+  <script src="./logic/pair_logic.js"></script>
+  <script src="./logic/hand_logic.js"></script>
+  <script src="./logic/combo_logic.js"></script>
+  <script src="./logic/damage_calc.js"></script>
+  <script src="./logic/battle_logic.js"></script>
+
+  <!-- ゲーム部品（Sceneより前に読み込む） -->
   <script src="./objects/deck.js"></script>
   <script src="./objects/card.js"></script>
 

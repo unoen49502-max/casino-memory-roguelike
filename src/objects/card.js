@@ -172,11 +172,30 @@ class Card extends Phaser.GameObjects.Container {
     });
   }
 
+  // 消滅演出：フェード＋縮小して盤面から消す（状態:removed）。以後は入力不可。
+  remove(onDone) {
+    if (this.faceState === 'removed') return;
+    this.faceState = 'removed';
+    this.disableInteractive();
+    this.scene.tweens.add({
+      targets: this,
+      scaleX: 0,
+      scaleY: 0,
+      alpha: 0,
+      duration: 220,
+      ease: 'Back.easeIn',
+      onComplete: () => {
+        this.setVisible(false);
+        if (onDone) onDone(this);
+      },
+    });
+  }
+
   // --- 入力ハンドラ ------------------------------------------------------
 
   _onDown() {
-    // アニメ中はカード単位で入力を受け付けない
-    if (this.isFlipping) return;
+    // アニメ中・消滅済みはカード単位で入力を受け付けない
+    if (this.isFlipping || this.faceState === 'removed') return;
     if (this.onClick) this.onClick(this);
   }
 
