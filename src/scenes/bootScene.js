@@ -11,6 +11,7 @@ class BootScene extends Phaser.Scene {
     this.load.json('characters', 'data/characters.json');
     this.load.json('reactions', 'data/reactions.json');
     this.load.json('charms', 'data/charms.json');
+    this.load.json('rewards', 'data/rewards.json');
   }
 
   create() {

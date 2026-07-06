@@ -1,0 +1,24 @@
+{
+  "immediate": {
+    "id": "heal",
+    "axis": "即時",
+    "label": "HP +10 回復",
+    "type": "heal",
+    "value": 10
+  },
+  "economy": {
+    "id": "chips",
+    "axis": "経済",
+    "label": "チップ +40",
+    "type": "chips",
+    "value": 40
+  },
+  "growth": {
+    "id": "flip",
+    "axis": "成長",
+    "label": "めくり回数 +1（ラン中）",
+    "type": "flip",
+    "value": 1,
+    "oncePerRun": true
+  }
+}

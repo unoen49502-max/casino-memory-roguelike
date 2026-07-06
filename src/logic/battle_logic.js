@@ -54,18 +54,38 @@ class BattleLogic {
   }
 
   /**
-   * めくった2枚を解決。ペアなら敵にダメージ、不一致ならコンボリセット。
-   * @returns {boolean} ペア成立したか
+   * めくった複数枚（2〜N枚）を解決。同ランク2枚ずつでペアを作り、
+   * 成立ペア群から役・ダメージを算出して敵に与える。不一致分は裏へ戻す想定。
+   * @param {{rank:string,suit:string}[]} cards
+   * @returns {{success:boolean, matchedIndices:number[], unmatchedIndices:number[],
+   *            damage:number, hand?:object, combo?:object}}
    */
-  resolve(cardA, cardB) {
-    if (this.finished) return false;
+  resolveMulti(cards) {
+    if (this.finished) {
+      return { success: false, matchedIndices: [], unmatchedIndices: cards.map((_, i) => i), damage: 0 };
+    }
 
-    if (isPair(cardA, cardB)) {
-      const pairs = [makePair(cardA, cardB)];
+    // 同ランクで2枚ずつペア化。余りは不成立。
+    const byRank = {};
+    cards.forEach((c, i) => {
+      (byRank[c.rank] || (byRank[c.rank] = [])).push(i);
+    });
+    const pairs = [];
+    const matchedIndices = [];
+    const unmatchedIndices = [];
+    Object.keys(byRank).forEach((r) => {
+      const idxs = byRank[r];
+      let k = 0;
+      for (; k + 1 < idxs.length; k += 2) {
+        pairs.push(makePair(cards[idxs[k]], cards[idxs[k + 1]]));
+        matchedIndices.push(idxs[k], idxs[k + 1]);
+      }
+      for (; k < idxs.length; k++) unmatchedIndices.push(idxs[k]);
+    });
+
+    if (pairs.length > 0) {
       const hand = evaluateHand(pairs);
       const comboMult = this.currentComboMultiplier();
-
-      // チャーム補正（乗算/加算）を集計してダメージ確定
       const corr = charmDamageCorrections(this.charms, { pairs, hand });
       const dmg = calcDamageWithCharms(pairs, {
         handMult: hand.multiplier,
@@ -75,38 +95,31 @@ class BattleLogic {
       });
       const damage = dmg.damage;
       this.lastBreakdown = dmg.breakdown;
-      // バランス調整用ログ（内訳：ペア値/役/コンボ/チャーム）
       console.log(
-        `[DMG] pairValue=${dmg.breakdown.pairValue} hand=${hand.name}(x${hand.multiplier}) ` +
+        `[DMG] pairs=${pairs.length} pairValue=${dmg.breakdown.pairValue} hand=${hand.name}(x${hand.multiplier}) ` +
           `combo=x${comboMult} charmMult=x${corr.mult} charmFlat=+${corr.flat} => ${damage}`
       );
 
       this.comboCount = nextComboCount(this.comboCount, true);
       this.enemyHp = Math.max(0, this.enemyHp - damage);
 
-      const result = {
-        pairs,
-        hand,
-        combo: { count: this.comboCount, multiplier: comboMult },
-        damage,
-        enemyHp: this.enemyHp,
-        cards: [cardA, cardB],
-      };
-      this._emit('pair_success', result);
-      this._emit('damage_dealt', { damage, hand, combo: result.combo });
-      this._emit('enemy_damaged', {
-        enemyHp: this.enemyHp,
-        enemyMaxHp: this.enemyMaxHp,
-        damage,
-      });
+      const combo = { count: this.comboCount, multiplier: comboMult };
+      this._emit('pair_success', { pairs, hand, combo, damage, enemyHp: this.enemyHp });
+      this._emit('damage_dealt', { damage, hand, combo });
+      this._emit('enemy_damaged', { enemyHp: this.enemyHp, enemyMaxHp: this.enemyMaxHp, damage });
 
       if (this.enemyHp <= 0) this._win();
-      return true;
+      return { success: true, matchedIndices, unmatchedIndices, damage, hand, combo };
     }
 
     this.comboCount = nextComboCount(this.comboCount, false);
-    this._emit('pair_fail', { cards: [cardA, cardB] });
-    return false;
+    this._emit('pair_fail', { cards });
+    return { success: false, matchedIndices: [], unmatchedIndices, damage: 0 };
+  }
+
+  // 後方互換：2枚版。ペア成立したかを返す。
+  resolve(cardA, cardB) {
+    return this.resolveMulti([cardA, cardB]).success;
   }
 
   // 敵ターン：攻撃力ぶんプレイヤーHPを減らす。

@@ -45,22 +45,31 @@ class BattleScene extends Phaser.Scene {
   }
 
   create() {
-    // 敵データ（enemies.json）を取得。registryのenemyId優先、無ければデバッグ定数。
-    const enemyId = this.registry.get('enemyId') || DEBUG_ENEMY_ID;
     const enemies = this.cache.json.get('enemies') || {};
-    this.enemy = enemies[enemyId];
-
-    // 装備チャーム（registry優先、無ければデバッグ既定）
     const allCharms = this.cache.json.get('charms') || {};
-    const equippedIds = this.registry.get('equippedCharms') || DEBUG_EQUIPPED_CHARMS;
+    this.run = this.registry.get('run') || null;
+
+    // ラン中は run_manager から、単体デバッグ時は registry/定数から取得。
+    let enemyId, playerHp, equippedIds;
+    if (this.run) {
+      enemyId = this.run.currentEnemyId() || DEBUG_ENEMY_ID;
+      playerHp = this.run.hp;
+      equippedIds = this.run.charms;
+      this.maxFaceUp = this.run.flipCount();
+    } else {
+      enemyId = this.registry.get('enemyId') || DEBUG_ENEMY_ID;
+      playerHp = PLAYER_MAX_HP;
+      equippedIds = this.registry.get('equippedCharms') || DEBUG_EQUIPPED_CHARMS;
+      this.maxFaceUp = MAX_FACE_UP;
+    }
+    this.enemy = enemies[enemyId];
     this.charms = equippedIds.map((id) => allCharms[id]).filter(Boolean);
 
-    this.logic = new BattleLogic({ enemy: this.enemy, charms: this.charms });
+    this.logic = new BattleLogic({ enemy: this.enemy, charms: this.charms, playerHp });
     this.turnMgr = new TurnManager({});
 
     this.cards = [];
     this.flippedCards = [];
-    this.currentPair = null;
     this.isResolving = false;
     this.inputEnabled = false;
     this.battleOver = false;
@@ -320,7 +329,6 @@ class BattleScene extends Phaser.Scene {
 
   _endTurn() {
     this.flippedCards = [];
-    this.currentPair = null;
     this.isResolving = false;
     if (this.battleOver) return;
 
@@ -349,43 +357,50 @@ class BattleScene extends Phaser.Scene {
     if (!this.inputEnabled || this.battleOver) return;
     if (this.isResolving || card.isFlipping) return;
     if (card.faceState !== 'back') return;
-    if (this.flippedCards.length >= MAX_FACE_UP) return;
+    if (this.flippedCards.length >= this.maxFaceUp) return;
 
     card.flipToFront();
     this.flippedCards.push(card);
 
-    if (this.flippedCards.length === MAX_FACE_UP) {
+    // 上限到達、または残りの裏カードが無ければ判定へ（複数めくり対応）
+    const remainingBack = this.cards.filter(
+      (c) => c.faceState === 'back' && this.flippedCards.indexOf(c) === -1
+    ).length;
+    if (this.flippedCards.length === this.maxFaceUp || (remainingBack === 0 && this.flippedCards.length >= 2)) {
       this.isResolving = true;
       this.inputEnabled = false;
-      this.currentPair = this.flippedCards.slice();
-      this.time.delayedCall(PEEK_HOLD_MS, () => {
-        const [c1, c2] = this.currentPair;
-        this.logic.resolve(
-          { rank: c1.rank, suit: c1.suit },
-          { rank: c2.rank, suit: c2.suit }
-        );
-        // 判定演出のあと敵ターンへ
-        this.time.delayedCall(ENEMY_TURN_DELAY_MS, () => this._endTurn());
-      });
+      this.time.delayedCall(PEEK_HOLD_MS, () => this._resolveTurn());
     }
   }
 
-  // ================= ロジック結果イベント（描画のみ） =================
+  // めくった全カードをロジックで解決し、消滅/裏戻し/ダメージ表示を行う。
+  _resolveTurn() {
+    const flipped = this.flippedCards.slice();
+    const data = flipped.map((c) => ({ rank: c.rank, suit: c.suit }));
+    const res = this.logic.resolveMulti(data);
 
-  _onPairSuccess(e) {
-    const [c1, c2] = this.currentPair;
-    const px = (c1.x + c2.x) / 2;
-    const py = (c1.y + c2.y) / 2;
-    c1.remove();
-    c2.remove();
-    this._showDamagePopup(px, py, e.damage, e.hand, e.combo);
+    if (res.success) {
+      const matched = res.matchedIndices.map((i) => flipped[i]);
+      const unmatched = res.unmatchedIndices.map((i) => flipped[i]);
+      const px = matched.reduce((s, c) => s + c.x, 0) / matched.length;
+      const py = matched.reduce((s, c) => s + c.y, 0) / matched.length;
+      matched.forEach((c) => c.remove());
+      unmatched.forEach((c) => c.flipToBack());
+      this._showDamagePopup(px, py, res.damage, res.hand, res.combo);
+    } else {
+      flipped.forEach((c) => c.flipToBack());
+    }
+
+    this.time.delayedCall(ENEMY_TURN_DELAY_MS, () => this._endTurn());
+  }
+
+  // ================= ロジック結果イベント（立ち絵リアクションのみ） =================
+
+  _onPairSuccess() {
     this._react('pair_success');
   }
 
   _onPairFail() {
-    const [c1, c2] = this.currentPair;
-    c1.flipToBack();
-    c2.flipToBack();
     this._react('pair_fail');
   }
 
@@ -496,10 +511,18 @@ class BattleScene extends Phaser.Scene {
   _onVictory(e) {
     this.battleOver = true;
     this.inputEnabled = false;
-    // 獲得チップは保持のみ（ラン進行はTASK_005）
-    this.registry.set('chips', (this.registry.get('chips') || 0) + e.chips);
     this._react('victory');
-    this._showResult('VICTORY', `CHIPS +${e.chips}`, '#ffe27a');
+    if (this.run) {
+      this.run.setHp(this.logic.playerHp); // HPをバトル間で持ち越し
+      this.run.addChips(e.chips);
+      if (this.run.isBossStep()) this.run.finish('clear');
+      this._showResult('VICTORY', `CHIPS +${e.chips}`, '#ffe27a', () => {
+        this.run.advance();
+        routeToCurrentStep(this);
+      });
+    } else {
+      this._showResult('VICTORY', `CHIPS +${e.chips}`, '#ffe27a', () => this.scene.start('TitleScene'));
+    }
   }
 
   _onDefeat(e) {
@@ -507,45 +530,45 @@ class BattleScene extends Phaser.Scene {
     this.inputEnabled = false;
     this._react('defeat');
     const reason = e.reason === 'timeout' ? 'TIME OVER' : '';
-    this._showResult('DEFEAT', reason, '#ff6a6a');
+    if (this.run) {
+      this.run.setHp(0);
+      this.run.finish('defeat');
+      this._showResult('DEFEAT', reason, '#ff6a6a', () => this.scene.start('ResultScene'));
+    } else {
+      this._showResult('DEFEAT', reason, '#ff6a6a', () => this.scene.start('TitleScene'));
+    }
   }
 
-  _showResult(title, sub, color) {
+  // 勝敗バナー→クリックで onNext（ラン中は次ステップへ、単体時はタイトルへ）。
+  _showResult(title, sub, color, onNext) {
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2;
-    this.add
-      .rectangle(cx, cy, this.scale.width, this.scale.height, 0x000000, 0.55)
-      .setDepth(190);
+    this.add.rectangle(cx, cy, this.scale.width, this.scale.height, 0x000000, 0.55).setDepth(190);
     this.add
       .text(cx, cy - 20, title, {
-        fontFamily: 'sans-serif',
-        fontSize: '64px',
-        fontStyle: 'bold',
-        color,
-        stroke: '#000000',
-        strokeThickness: 6,
+        fontFamily: 'sans-serif', fontSize: '64px', fontStyle: 'bold',
+        color, stroke: '#000000', strokeThickness: 6,
       })
-      .setOrigin(0.5)
-      .setDepth(200);
+      .setOrigin(0.5).setDepth(200);
     if (sub) {
       this.add
-        .text(cx, cy + 40, sub, {
-          fontFamily: 'sans-serif',
-          fontSize: '26px',
-          color: '#f5e6d8',
-        })
-        .setOrigin(0.5)
-        .setDepth(200);
+        .text(cx, cy + 40, sub, { fontFamily: 'sans-serif', fontSize: '26px', color: '#f5e6d8' })
+        .setOrigin(0.5).setDepth(200);
     }
     this.add
-      .text(cx, cy + 100, 'クリックでタイトルへ', {
-        fontFamily: 'sans-serif',
-        fontSize: '18px',
-        color: '#b08cae',
-      })
-      .setOrigin(0.5)
-      .setDepth(200);
+      .text(cx, cy + 100, 'クリックで次へ', { fontFamily: 'sans-serif', fontSize: '18px', color: '#b08cae' })
+      .setOrigin(0.5).setDepth(200);
 
-    this.input.once('pointerdown', () => this.scene.start('TitleScene'));
+    this._resultNext = onNext || null;
+    this.input.once('pointerdown', () => this._proceedResult());
+  }
+
+  // 勝敗バナー→次へ（テスト・クリック共通の入口）。
+  _proceedResult() {
+    if (this._resultNext) {
+      const f = this._resultNext;
+      this._resultNext = null;
+      f();
+    }
   }
 }
