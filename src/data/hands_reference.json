@@ -1,0 +1,8 @@
+[
+  { "key": "PAIR",          "name": "ペア",             "condition": "数字が一致",              "multiplier": 1.0 },
+  { "key": "SUITED_PAIR",   "name": "スートペア",       "condition": "同数字＋同スート",        "multiplier": 1.5 },
+  { "key": "DOUBLE_PAIR",   "name": "ダブルペア",       "condition": "1ターンに2ペア",          "multiplier": 2.0 },
+  { "key": "TRIPLE_PAIR",   "name": "トリプルペア",     "condition": "1ターンに3ペア",          "multiplier": 3.0 },
+  { "key": "STRAIGHT_PAIR", "name": "ストレートペア",   "condition": "連番ペアを複数成立",      "multiplier": 2.5 },
+  { "key": "FLUSH_PAIR",    "name": "フラッシュペア",   "condition": "同スートのペアを複数成立", "multiplier": 2.5 }
+]

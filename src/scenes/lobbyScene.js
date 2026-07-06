@@ -30,6 +30,11 @@ class LobbyScene extends Phaser.Scene {
 
     this.startBtn = btn;
     btn.on('pointerdown', () => this._startRun());
+
+    const settingsBtn = this.add
+      .text(cx, cy + 90, '設定', { fontFamily: 'sans-serif', fontSize: '20px', color: '#ffe27a', backgroundColor: '#3a1a2c', padding: { x: 16, y: 8 } })
+      .setOrigin(0.5).setInteractive({ useHandCursor: true });
+    settingsBtn.on('pointerdown', () => this.scene.launch('SettingsScene', { from: 'LobbyScene' }));
   }
 
   _startRun() {

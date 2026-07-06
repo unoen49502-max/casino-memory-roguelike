@@ -18,6 +18,9 @@ const config = {
     ShopScene,
     BattleScene,
     ResultScene,
+    PauseMenuScene,
+    SettingsScene,
+    GalleryScene,
   ],
 };
 

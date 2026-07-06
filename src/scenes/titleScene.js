@@ -24,7 +24,20 @@ class TitleScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    this.input.once('pointerdown', () => {
+    // 設定・ギャラリーボタン（クリックはこれらより後ろに伝播しないようボタンで処理）
+    const settingsBtn = this.add
+      .text(cx - 90, cy + 130, '設定', { fontFamily: 'sans-serif', fontSize: '20px', color: '#ffe27a', backgroundColor: '#3a1a2c', padding: { x: 16, y: 8 } })
+      .setOrigin(0.5).setInteractive({ useHandCursor: true });
+    settingsBtn.on('pointerdown', (p, lx, ly, ev) => { if (ev) ev.stopPropagation(); this.scene.launch('SettingsScene', { from: 'TitleScene' }); });
+
+    const galleryBtn = this.add
+      .text(cx + 90, cy + 130, 'ギャラリー', { fontFamily: 'sans-serif', fontSize: '20px', color: '#ffe27a', backgroundColor: '#3a1a2c', padding: { x: 16, y: 8 } })
+      .setOrigin(0.5).setInteractive({ useHandCursor: true });
+    galleryBtn.on('pointerdown', (p, lx, ly, ev) => { if (ev) ev.stopPropagation(); this.scene.start('GalleryScene'); });
+
+    // 画面クリックでロビーへ（ボタン以外）
+    this.input.on('pointerdown', (pointer, over) => {
+      if (over && over.length > 0) return; // ボタン上は無視
       this.scene.start('LobbyScene');
     });
   }

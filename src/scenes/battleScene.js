@@ -109,6 +109,7 @@ class BattleScene extends Phaser.Scene {
     this._drawReservedArea();
     this._createHpUI();
     this._createCharmUI();
+    this._createMenuButton();
     this._buildBoard();
 
     // モディファイアの開始時演出＋告知
@@ -186,6 +187,23 @@ class BattleScene extends Phaser.Scene {
   // イベント→立ち絵リアクション（立ち絵が無ければ無視）。
   _react(eventName) {
     if (this.character) this.character.react(eventName);
+  }
+
+  // ラン中メニュー（右上ボタン／ESCで開閉。開いている間は一時停止）。
+  _createMenuButton() {
+    const btn = this.add
+      .text(this.scale.width - 20, this.scale.height - 20, '≡ メニュー', {
+        fontFamily: 'sans-serif', fontSize: '16px', color: '#f5e6d8', backgroundColor: '#3a1a2c', padding: { x: 12, y: 8 },
+      })
+      .setOrigin(1, 1).setDepth(70).setInteractive({ useHandCursor: true });
+    btn.on('pointerdown', () => this._openMenu());
+    this.input.keyboard.on('keydown-ESC', () => this._openMenu());
+  }
+
+  _openMenu() {
+    if (this.scene.isPaused() || this.battleOver) return;
+    this.scene.launch('PauseMenuScene', { parentKey: 'BattleScene' });
+    this.scene.pause();
   }
 
   _bindLogicEvents() {
@@ -550,7 +568,7 @@ class BattleScene extends Phaser.Scene {
     const t = this.add
       .text(x, y, text, { fontFamily: 'sans-serif', fontSize: '24px', fontStyle: 'bold', color, stroke: '#3a1a2c', strokeThickness: 4 })
       .setOrigin(0.5).setDepth(140);
-    this.tweens.add({ targets: t, y: y - 40, alpha: 0, duration: 900, onComplete: () => t.destroy() });
+    this.tweens.add({ targets: t, y: y - 40, alpha: 0, duration: fxDuration(900), onComplete: () => t.destroy() });
   }
 
   // ================= ロジック結果イベント（立ち絵リアクションのみ） =================
@@ -590,7 +608,7 @@ class BattleScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(150);
-    this.tweens.add({ targets: t, alpha: 0, y: '-=40', duration: 1000, onComplete: () => t.destroy() });
+    this.tweens.add({ targets: t, alpha: 0, y: '-=40', duration: fxDuration(1000), onComplete: () => t.destroy() });
   }
 
   // ボスギミック：盤面の裏向きカードから同ランク2枚を選び、ダメージ0で消す。
@@ -656,7 +674,7 @@ class BattleScene extends Phaser.Scene {
       targets: [dmgText, infoText],
       y: '-=48',
       alpha: 0,
-      duration: 900,
+      duration: fxDuration(900),
       ease: 'Cubic.easeOut',
       onComplete: () => {
         dmgText.destroy();
