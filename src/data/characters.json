@@ -1,0 +1,22 @@
+{
+  "lilim": {
+    "name": "リリム",
+    "layers": {
+      "backhair": {
+        "key": "char_lilim_backhair",
+        "path": "../assets/images/chars/char_lilim_backhair.png"
+      },
+      "body": {
+        "key": "char_lilim_body",
+        "path": "../assets/images/chars/char_lilim_body.png"
+      },
+      "faces": {
+        "normal":   { "key": "char_lilim_face_normal",   "path": "../assets/images/chars/char_lilim_face_normal.png" },
+        "smile":    { "key": "char_lilim_face_smile",    "path": "../assets/images/chars/char_lilim_face_smile.png" },
+        "surprise": { "key": "char_lilim_face_surprise", "path": "../assets/images/chars/char_lilim_face_surprise.png" },
+        "smug":     { "key": "char_lilim_face_smug",     "path": "../assets/images/chars/char_lilim_face_smug.png" },
+        "sad":      { "key": "char_lilim_face_sad",      "path": "../assets/images/chars/char_lilim_face_sad.png" }
+      }
+    }
+  }
+}

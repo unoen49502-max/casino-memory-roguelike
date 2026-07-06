@@ -1,0 +1,8 @@
+{
+  "pair_success":   { "face": "surprise", "tween": "bounce" },
+  "pair_fail":      { "face": "sad",      "tween": "sink" },
+  "player_damaged": { "face": "surprise", "tween": "shake" },
+  "battle_start":   { "face": "smile",    "tween": "slide_in" },
+  "victory":        { "face": "smug",     "tween": "bounce" },
+  "defeat":         { "face": "smile",    "tween": "none" }
+}

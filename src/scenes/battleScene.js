@@ -28,6 +28,20 @@ class BattleScene extends Phaser.Scene {
     super({ key: 'BattleScene' });
   }
 
+  preload() {
+    // 立ち絵の正式素材を読込（無ければcreateでプレースホルダー生成に切り替わる）。
+    const chars = this.cache.json.get('characters');
+    if (chars && chars.lilim) {
+      const L = chars.lilim.layers;
+      const queue = (o) => { if (o && o.key && o.path) this.load.image(o.key, o.path); };
+      queue(L.backhair);
+      queue(L.body);
+      Object.values(L.faces).forEach(queue);
+      // 素材欠落（正式素材未配置）は想定内。ロードエラーは握りつぶす。
+      this.load.on('loaderror', () => {});
+    }
+  }
+
   create() {
     // 敵データ（enemies.json）を取得。registryのenemyId優先、無ければデバッグ定数。
     const enemyId = this.registry.get('enemyId') || DEBUG_ENEMY_ID;
@@ -46,11 +60,30 @@ class BattleScene extends Phaser.Scene {
 
     this._bindLogicEvents();
 
+    // 立ち絵（盤面より背面）。イベント→リアクションはreactions.jsonで駆動。
+    this._createCharacter();
+
     this._drawReservedArea();
     this._createHpUI();
     this._buildBoard();
 
+    // バトル開始リアクション（smile + slide_in）
+    this._react('battle_start');
+
     this._beginTurn();
+  }
+
+  _createCharacter() {
+    const chars = this.cache.json.get('characters');
+    const reactions = this.cache.json.get('reactions') || {};
+    if (chars && chars.lilim) {
+      this.character = new CharacterDisplay(this, chars.lilim, reactions);
+    }
+  }
+
+  // イベント→立ち絵リアクション（立ち絵が無ければ無視）。
+  _react(eventName) {
+    if (this.character) this.character.react(eventName);
   }
 
   _bindLogicEvents() {
@@ -261,16 +294,19 @@ class BattleScene extends Phaser.Scene {
     c1.remove();
     c2.remove();
     this._showDamagePopup(px, py, e.damage, e.hand, e.combo);
+    this._react('pair_success');
   }
 
   _onPairFail() {
     const [c1, c2] = this.currentPair;
     c1.flipToBack();
     c2.flipToBack();
+    this._react('pair_fail');
   }
 
   _onPlayerDamaged(e) {
     this._updatePlayerHpUI();
+    this._react('player_damaged');
     // 敵側の赤フラッシュ（仮演出）
     const flash = this.add
       .rectangle(this.scale.width / 2, this.scale.height / 6, this.scale.width, this.scale.height / 3, 0xff2a2a, 0.28)
@@ -377,12 +413,14 @@ class BattleScene extends Phaser.Scene {
     this.inputEnabled = false;
     // 獲得チップは保持のみ（ラン進行はTASK_005）
     this.registry.set('chips', (this.registry.get('chips') || 0) + e.chips);
+    this._react('victory');
     this._showResult('VICTORY', `CHIPS +${e.chips}`, '#ffe27a');
   }
 
   _onDefeat(e) {
     this.battleOver = true;
     this.inputEnabled = false;
+    this._react('defeat');
     const reason = e.reason === 'timeout' ? 'TIME OVER' : '';
     this._showResult('DEFEAT', reason, '#ff6a6a');
   }

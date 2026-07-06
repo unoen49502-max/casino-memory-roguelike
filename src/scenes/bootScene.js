@@ -8,6 +8,8 @@ class BootScene extends Phaser.Scene {
   preload() {
     // 定義データ（JSON）。パスはindex.html（src/）基準。
     this.load.json('enemies', 'data/enemies.json');
+    this.load.json('characters', 'data/characters.json');
+    this.load.json('reactions', 'data/reactions.json');
   }
 
   create() {
