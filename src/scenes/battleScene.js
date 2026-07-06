@@ -1,20 +1,19 @@
 // battleScene：戦闘シーン。
-// TASK_002：ペア判定・役・ダメージ計算を組込。ペアなら消滅＋ダメージ表示、
-// 不一致なら裏へ戻す。全消滅で BOARD CLEAR（勝敗はTASK_003）。
-//
-// 設計：ゲームロジックは BattleLogic（src/logic/）に委譲し、battleScene は
-// 結果イベント（pair_success / pair_fail / board_clear）を受けて描画するだけ。
+// TASK_003：敵・敵ターン・プレイヤーHP・勝敗・ボスギミック・盤面リフィルを実装。
+// ゲームロジックは BattleLogic / TurnManager（src/logic/）へ委譲し、
+// battleScene は結果イベントを受けて描画するだけ。
 
-// 盤面レイアウト定数（カードサイズ差し替え・盤面拡張を見据えて定数化）。
+// --- デバッグ：どの敵と戦うか（起動時定数。registryで上書き可） ---
+const DEBUG_ENEMY_ID = 'mob_a';
+
+// 盤面レイアウト定数。
 const GRID_COLS = 4;
 const GRID_ROWS = 4;
 const CARD_GAP = 16;
-// 表にできる最大枚数。
 const MAX_FACE_UP = 2;
-// 2枚揃ってから判定するまでの表示時間(ms)。
-const PEEK_HOLD_MS = 1000;
+const PEEK_HOLD_MS = 1000; // 2枚揃ってから判定するまでの表示時間
+const ENEMY_TURN_DELAY_MS = 350; // 判定後〜敵ターンまでの間
 
-// 役の表示名（ポップアップ用）。
 const HAND_LABELS = {
   PAIR: 'PAIR',
   SUITED_PAIR: 'SUITED PAIR',
@@ -30,47 +29,134 @@ class BattleScene extends Phaser.Scene {
   }
 
   create() {
-    this.cards = [];
-    this.flippedCards = []; // 現在表向きのカード（最大MAX_FACE_UP枚）
-    this.currentPair = null; // 判定対象の2枚（Card参照）
-    this.isResolving = false; // 判定待機中フラグ
-    this.clearedShown = false;
+    // 敵データ（enemies.json）を取得。registryのenemyId優先、無ければデバッグ定数。
+    const enemyId = this.registry.get('enemyId') || DEBUG_ENEMY_ID;
+    const enemies = this.cache.json.get('enemies') || {};
+    this.enemy = enemies[enemyId];
 
-    // ロジック本体と結果イベントの購読（Scene側は表示するだけ）
-    this.logic = new BattleLogic();
-    this.logic.on('pair_success', (e) => this._onPairSuccess(e));
-    this.logic.on('pair_fail', (e) => this._onPairFail(e));
-    this.logic.on('board_clear', () => this._onBoardClear());
+    this.logic = new BattleLogic({ enemy: this.enemy });
+    this.turnMgr = new TurnManager({});
+
+    this.cards = [];
+    this.flippedCards = [];
+    this.currentPair = null;
+    this.isResolving = false;
+    this.inputEnabled = false;
+    this.battleOver = false;
+
+    this._bindLogicEvents();
 
     this._drawReservedArea();
+    this._createHpUI();
     this._buildBoard();
+
+    this._beginTurn();
   }
 
-  // 上側1/3は将来のキャラ立ち絵・敵HP表示用に空けておく（目印だけ置く）。
+  _bindLogicEvents() {
+    this.logic.on('pair_success', (e) => this._onPairSuccess(e));
+    this.logic.on('pair_fail', (e) => this._onPairFail(e));
+    this.logic.on('enemy_damaged', (e) => this._updateEnemyHpUI(e));
+    this.logic.on('player_damaged', (e) => this._onPlayerDamaged(e));
+    this.logic.on('board_refill', (e) => this._onBoardRefill(e));
+    this.logic.on('victory', (e) => this._onVictory(e));
+    this.logic.on('defeat', (e) => this._onDefeat(e));
+  }
+
+  // ================= レイアウト・UI =================
+
   _drawReservedArea() {
     const w = this.scale.width;
     const reservedH = this.scale.height / 3;
-
     const g = this.add.graphics();
     g.lineStyle(1, 0x3a1a2c, 1);
     g.lineBetween(0, reservedH, w, reservedH);
 
-    this.add
-      .text(w / 2, reservedH / 2, '（敵・立ち絵エリア：未実装）', {
-        fontFamily: 'sans-serif',
-        fontSize: '16px',
-        color: '#5a3a4c',
-      })
-      .setOrigin(0.5);
+    // 敵名（左上）＋種別
+    const label = this.enemy
+      ? `${this.enemy.name}（${this.enemy.type === 'boss' ? 'BOSS' : 'MOB'}）`
+      : '（敵データなし）';
+    this.add.text(24, 20, label, {
+      fontFamily: 'sans-serif',
+      fontSize: '20px',
+      color: '#f5c6d8',
+    });
   }
 
-  // 4×4グリッドを画面下側2/3に配置してカードを生成する。
-  _buildBoard() {
-    const board = generateBoard(); // Scene非依存の純粋関数
+  // HP UI（画面上部・仮レイアウト）。
+  _createHpUI() {
+    this.enemyBar = this.add.graphics().setDepth(50);
+    this.playerBar = this.add.graphics().setDepth(50);
 
+    this.enemyHpText = this.add
+      .text(this.scale.width - 24, 24, '', {
+        fontFamily: 'sans-serif',
+        fontSize: '18px',
+        color: '#ffd0d0',
+      })
+      .setOrigin(1, 0)
+      .setDepth(51);
+
+    this.playerHpText = this.add
+      .text(this.scale.width - 24, 78, '', {
+        fontFamily: 'sans-serif',
+        fontSize: '18px',
+        color: '#d0e0ff',
+      })
+      .setOrigin(1, 0)
+      .setDepth(51);
+
+    this.turnText = this.add
+      .text(24, 52, '', {
+        fontFamily: 'sans-serif',
+        fontSize: '15px',
+        color: '#8a6a7c',
+      })
+      .setDepth(51);
+
+    this._updateEnemyHpUI({ enemyHp: this.logic.enemyHp, enemyMaxHp: this.logic.enemyMaxHp });
+    this._updatePlayerHpUI();
+  }
+
+  _bar(g, x, y, w, h, ratio, fillColor) {
+    g.fillStyle(0x000000, 0.5);
+    g.fillRect(x, y, w, h);
+    g.fillStyle(fillColor, 1);
+    g.fillRect(x, y, Math.max(0, w * ratio), h);
+    g.lineStyle(1, 0xf5e6d8, 0.6);
+    g.strokeRect(x, y, w, h);
+  }
+
+  _updateEnemyHpUI(e) {
+    const hp = e.enemyHp != null ? e.enemyHp : this.logic.enemyHp;
+    const max = e.enemyMaxHp != null ? e.enemyMaxHp : this.logic.enemyMaxHp;
+    const barW = 320;
+    const x = this.scale.width - 24 - barW;
+    this.enemyBar.clear();
+    this._bar(this.enemyBar, x, 48, barW, 16, max ? hp / max : 0, 0xc0392b);
+    this.enemyHpText.setText(`ENEMY  ${hp} / ${max}`);
+  }
+
+  _updatePlayerHpUI() {
+    const hp = this.logic.playerHp;
+    const max = this.logic.playerMaxHp;
+    const barW = 320;
+    const x = this.scale.width - 24 - barW;
+    this.playerBar.clear();
+    this._bar(this.playerBar, x, 102, barW, 16, max ? hp / max : 0, 0x2e86c1);
+    this.playerHpText.setText(`YOU  ${hp} / ${max}`);
+  }
+
+  _updateTurnUI() {
+    this.turnText.setText(`TURN ${this.turnMgr.turn} / ${this.turnMgr.maxTurns}`);
+  }
+
+  // ================= 盤面 =================
+
+  _buildBoard() {
+    const board = generateBoard();
     const boardW = GRID_COLS * CARD_WIDTH + (GRID_COLS - 1) * CARD_GAP;
     const boardH = GRID_ROWS * CARD_HEIGHT + (GRID_ROWS - 1) * CARD_GAP;
-
     const areaTop = this.scale.height / 3;
     const areaHeight = (this.scale.height * 2) / 3;
     const startX = (this.scale.width - boardW) / 2 + CARD_WIDTH / 2;
@@ -82,7 +168,6 @@ class BattleScene extends Phaser.Scene {
         const data = board[index];
         const x = startX + col * (CARD_WIDTH + CARD_GAP);
         const y = startY + row * (CARD_HEIGHT + CARD_GAP);
-
         const card = new Card(this, x, y, data.rank, data.suit);
         card.onClick = (c) => this._onCardClicked(c);
         this.cards.push(card);
@@ -90,11 +175,62 @@ class BattleScene extends Phaser.Scene {
     }
   }
 
-  // カードクリック：2枚表になったら PEEK_HOLD_MS 後にロジックへ判定を委譲。
+  _refillBoard() {
+    this.cards.forEach((c) => c.destroy());
+    this.cards = [];
+    this._buildBoard();
+  }
+
+  _allRemoved() {
+    return this.cards.length > 0 && this.cards.every((c) => c.faceState === 'removed');
+  }
+
+  // ================= ターンループ =================
+
+  _beginTurn() {
+    if (this.battleOver) return;
+    const turn = this.turnMgr.next();
+    this._updateTurnUI();
+
+    // ボスギミック（お手伝い♡）：3の倍数ターン開始時に自動で1ペア消滅（ダメージ0）
+    if (gimmickFiresThisTurn(this.enemy, turn)) {
+      this._doGimmick();
+    }
+
+    this.inputEnabled = true;
+  }
+
+  _endTurn() {
+    this.flippedCards = [];
+    this.currentPair = null;
+    this.isResolving = false;
+    if (this.battleOver) return;
+
+    // 敵ターン（攻撃）
+    this.logic.enemyAttack();
+    if (this.battleOver) return;
+
+    // 盤面フルクリア（敵撃破前）→ リフィル＋コンボボーナス
+    if (this._allRemoved()) {
+      this.logic.onFullClear();
+      this._refillBoard();
+    }
+
+    // フェイルセーフ：MAX_TURNS経過で強制敗北
+    if (this.turnMgr.reachedFailsafe()) {
+      this.logic.forceDefeat();
+      return;
+    }
+
+    this._beginTurn();
+  }
+
+  // ================= 入力 =================
+
   _onCardClicked(card) {
-    if (this.isResolving) return;
-    if (card.isFlipping) return;
-    if (card.faceState !== 'back') return; // 表・消滅は無視
+    if (!this.inputEnabled || this.battleOver) return;
+    if (this.isResolving || card.isFlipping) return;
+    if (card.faceState !== 'back') return;
     if (this.flippedCards.length >= MAX_FACE_UP) return;
 
     card.flipToFront();
@@ -102,56 +238,100 @@ class BattleScene extends Phaser.Scene {
 
     if (this.flippedCards.length === MAX_FACE_UP) {
       this.isResolving = true;
+      this.inputEnabled = false;
       this.currentPair = this.flippedCards.slice();
       this.time.delayedCall(PEEK_HOLD_MS, () => {
         const [c1, c2] = this.currentPair;
-        // ロジックへ委譲。結果は pair_success / pair_fail イベントで返る。
         this.logic.resolve(
           { rank: c1.rank, suit: c1.suit },
           { rank: c2.rank, suit: c2.suit }
         );
+        // 判定演出のあと敵ターンへ
+        this.time.delayedCall(ENEMY_TURN_DELAY_MS, () => this._endTurn());
       });
     }
   }
 
-  // --- ロジック結果イベントの受け口（描画のみ） --------------------------
+  // ================= ロジック結果イベント（描画のみ） =================
 
   _onPairSuccess(e) {
     const [c1, c2] = this.currentPair;
     const px = (c1.x + c2.x) / 2;
     const py = (c1.y + c2.y) / 2;
-
     c1.remove();
-    c2.remove(() => {
-      // 盤面全消去チェック（2枚目の消滅完了後）
-      if (this._allRemoved() && !this.clearedShown) {
-        this.logic.notifyBoardClear();
-      }
-    });
-
+    c2.remove();
     this._showDamagePopup(px, py, e.damage, e.hand, e.combo);
-
-    this._endTurn();
   }
 
-  _onPairFail(e) {
+  _onPairFail() {
     const [c1, c2] = this.currentPair;
     c1.flipToBack();
     c2.flipToBack();
-    this._endTurn();
   }
 
-  _endTurn() {
-    this.flippedCards = [];
-    this.currentPair = null;
-    this.isResolving = false;
+  _onPlayerDamaged(e) {
+    this._updatePlayerHpUI();
+    // 敵側の赤フラッシュ（仮演出）
+    const flash = this.add
+      .rectangle(this.scale.width / 2, this.scale.height / 6, this.scale.width, this.scale.height / 3, 0xff2a2a, 0.28)
+      .setDepth(40);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      duration: 260,
+      onComplete: () => flash.destroy(),
+    });
   }
 
-  _allRemoved() {
-    return this.cards.every((c) => c.faceState === 'removed');
+  _onBoardRefill() {
+    const t = this.add
+      .text(this.scale.width / 2, this.scale.height / 2, 'FULL CLEAR!  COMBO +0.5', {
+        fontFamily: 'sans-serif',
+        fontSize: '30px',
+        fontStyle: 'bold',
+        color: '#9be27a',
+        stroke: '#0a2a00',
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5)
+      .setDepth(150);
+    this.tweens.add({ targets: t, alpha: 0, y: '-=40', duration: 1000, onComplete: () => t.destroy() });
   }
 
-  // ダメージ数値＋役＋コンボのポップアップ（仮演出）。上へ流れて消える。
+  // ボスギミック：盤面の裏向きカードから同ランク2枚を選び、ダメージ0で消す。
+  _doGimmick() {
+    const backCards = this.cards.filter((c) => c.faceState === 'back');
+    const byRank = {};
+    backCards.forEach((c) => (byRank[c.rank] || (byRank[c.rank] = [])).push(c));
+    const ranks = Object.keys(byRank).filter((r) => byRank[r].length >= 2);
+    if (ranks.length === 0) return;
+
+    const rank = ranks[Math.floor(Math.random() * ranks.length)];
+    const [a, b] = byRank[rank];
+    const px = (a.x + b.x) / 2;
+    const py = (a.y + b.y) / 2;
+
+    // 一瞬表にしてから消す（0ダメージ）
+    a.flipToFront();
+    b.flipToFront();
+    this.time.delayedCall(300, () => {
+      a.remove();
+      b.remove();
+      const label = (this.enemy.gimmicks[0] && this.enemy.gimmicks[0].label) || 'お手伝い♡';
+      const t = this.add
+        .text(px, py, label, {
+          fontFamily: 'sans-serif',
+          fontSize: '20px',
+          color: '#ff9ecb',
+          stroke: '#3a1a2c',
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5)
+        .setDepth(120);
+      this.tweens.add({ targets: t, alpha: 0, y: '-=30', duration: 900, onComplete: () => t.destroy() });
+    });
+  }
+
   _showDamagePopup(x, y, damage, hand, combo) {
     const handLabel = HAND_LABELS[hand.name] || hand.name;
     const comboLabel = combo.count >= 2 ? `  COMBO x${combo.multiplier}` : '';
@@ -167,7 +347,6 @@ class BattleScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(100);
-
     const infoText = this.add
       .text(x, y + 30, `${handLabel}${comboLabel}`, {
         fontFamily: 'sans-serif',
@@ -178,7 +357,6 @@ class BattleScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(100);
-
     this.tweens.add({
       targets: [dmgText, infoText],
       y: '-=48',
@@ -192,23 +370,59 @@ class BattleScene extends Phaser.Scene {
     });
   }
 
-  _onBoardClear() {
-    if (this.clearedShown) return;
-    this.clearedShown = true;
+  // ================= 勝敗 =================
 
+  _onVictory(e) {
+    this.battleOver = true;
+    this.inputEnabled = false;
+    // 獲得チップは保持のみ（ラン進行はTASK_005）
+    this.registry.set('chips', (this.registry.get('chips') || 0) + e.chips);
+    this._showResult('VICTORY', `CHIPS +${e.chips}`, '#ffe27a');
+  }
+
+  _onDefeat(e) {
+    this.battleOver = true;
+    this.inputEnabled = false;
+    const reason = e.reason === 'timeout' ? 'TIME OVER' : '';
+    this._showResult('DEFEAT', reason, '#ff6a6a');
+  }
+
+  _showResult(title, sub, color) {
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2;
-
     this.add
-      .text(cx, cy, 'BOARD CLEAR', {
+      .rectangle(cx, cy, this.scale.width, this.scale.height, 0x000000, 0.55)
+      .setDepth(190);
+    this.add
+      .text(cx, cy - 20, title, {
         fontFamily: 'sans-serif',
-        fontSize: '56px',
+        fontSize: '64px',
         fontStyle: 'bold',
-        color: '#ffe27a',
-        stroke: '#5a2a00',
+        color,
+        stroke: '#000000',
         strokeThickness: 6,
       })
       .setOrigin(0.5)
       .setDepth(200);
+    if (sub) {
+      this.add
+        .text(cx, cy + 40, sub, {
+          fontFamily: 'sans-serif',
+          fontSize: '26px',
+          color: '#f5e6d8',
+        })
+        .setOrigin(0.5)
+        .setDepth(200);
+    }
+    this.add
+      .text(cx, cy + 100, 'クリックでタイトルへ', {
+        fontFamily: 'sans-serif',
+        fontSize: '18px',
+        color: '#b08cae',
+      })
+      .setOrigin(0.5)
+      .setDepth(200);
+
+    this.input.once('pointerdown', () => this.scene.start('TitleScene'));
   }
 }

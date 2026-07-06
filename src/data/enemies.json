@@ -1,0 +1,40 @@
+{
+  "mob_a": {
+    "id": "mob_a",
+    "name": "雑魚A",
+    "hp": 40,
+    "attack": 4,
+    "type": "mob",
+    "chips": 30,
+    "gimmicks": []
+  },
+  "mob_b": {
+    "id": "mob_b",
+    "name": "雑魚B",
+    "hp": 50,
+    "attack": 5,
+    "type": "mob",
+    "chips": 30,
+    "gimmicks": []
+  },
+  "mob_c": {
+    "id": "mob_c",
+    "name": "雑魚C",
+    "hp": 60,
+    "attack": 6,
+    "type": "mob",
+    "chips": 30,
+    "gimmicks": []
+  },
+  "boss_lilim": {
+    "id": "boss_lilim",
+    "name": "リリム",
+    "hp": 120,
+    "attack": 6,
+    "type": "boss",
+    "chips": 80,
+    "gimmicks": [
+      { "type": "auto_clear_pair", "interval": 3, "label": "お手伝い♡" }
+    ]
+  }
+}

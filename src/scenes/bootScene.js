@@ -1,12 +1,13 @@
-// bootScene：起動時のアセット読込用。
-// 現状は読み込むアセットが無いため、即座にTitleSceneへ遷移する。
+// bootScene：起動時のアセット・データ読込用。
+// 読み込み完了後、TitleSceneへ遷移する。
 class BootScene extends Phaser.Scene {
   constructor() {
     super({ key: 'BootScene' });
   }
 
   preload() {
-    // 将来：ここで共通アセットをロードする
+    // 定義データ（JSON）。パスはindex.html（src/）基準。
+    this.load.json('enemies', 'data/enemies.json');
   }
 
   create() {

@@ -6,3 +6,6 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 .env
+
+# レンダリング自己確認用の一時ハーネス（コミットしない）
+/_render_harness.html

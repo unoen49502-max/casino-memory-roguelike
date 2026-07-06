@@ -15,3 +15,8 @@ const HAND_MULTIPLIERS = {
 // コンボ倍率。連続ペア成功ターンごとに +COMBO_STEP。失敗ターンでCOMBO_BASEにリセット。
 const COMBO_BASE = 1.0;
 const COMBO_STEP = 0.25;
+
+// バトル基礎値。
+const PLAYER_MAX_HP = 50; // プレイヤー初期HP
+const MAX_TURNS = 25; // フェイルセーフ：このターン数経過で強制敗北
+const FULL_CLEAR_COMBO_BONUS = 0.5; // 敵撃破前の盤面フルクリアで得るコンボ倍率ボーナス
